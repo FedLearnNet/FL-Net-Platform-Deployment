@@ -1,0 +1,7 @@
+# ignore generated secret files from being committed
+env/*secret*.env
+# Also ignore all other env files potentially put into env/ directory!
+env/
+
+# ignore the generated .env file containing deployment instance specific settings, e.g. domain names
+.env

@@ -1,0 +1,341 @@
+services:
+  datamodeler-api:
+    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/global-learning-apis/datamodeler-api:${IMAGE_TAG}
+    restart: always
+    pull_policy: always
+    environment:
+      - QUARKUS_NEO4J_AUTHENTICATION_USERNAME=neo4j
+        # WARNING: the datamodeler-secrets.env file automatically created always
+        # uses neo4j as username, so if you rename this and recreate secrets things will break
+        # be careful!
+      - QUARKUS_HTTP_CORS_ORIGINS=${DEPLOYED_ON_DOMAIN}
+    env_file:
+      - env/datamodeler-secrets.env
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - global-learning-network
+    volumes:
+      - ./umls:/data/umls:ro
+      - ./sapbert:/data/sapbert:ro
+    depends_on:
+      datamodeler-db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  datamodeler-db:
+    image: neo4j:5.18.1-enterprise
+    restart: always
+    environment:
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+    env_file:
+      - env/datamodeler-secrets.env
+    networks:
+      - global-learning-network
+    volumes:
+      - datamodeler-db:/data
+      #- neo4j-import:/var/lib/neo4j/import
+    healthcheck:
+      test: [ "CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  global-learning-api:
+    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/global-learning-apis/global-learning-api:${IMAGE_TAG}
+    # if you change the name also change the relevant env var in the orch api (CONTAINER_NETWORK_LEARNING)
+    container_name: fl-net-platform-global-learning-api
+    env_file:
+      - env/global-learning-secrets.env
+    environment:
+      - FLNET_FEDERATED_LEARNING_PARTICIPANTS_MINAMOUNT=${MIN_CLIENTS_NEEDED_FOR_LEARNING}
+      - QUARKUS_HTTP_CORS_ORIGINS=${DEPLOYED_ON_DOMAIN}
+      - QUARKUS_DATASOURCE_USERNAME=user
+      - FLNET_FEDDB_CLIENT_AUTH_ENABLE=${REQUIRE_CLIENT_AUTHENTICATION}
+      - QUARKUS_OIDC_TOKEN_ISSUER=${DEPLOYED_ON_DOMAIN}/auth/realms/FLNet-Platform
+      - QUARKUS_REST_CLIENT_RELAY_API_URL=http://relay-server:9140
+    restart: always
+    pull_policy: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - global-learning-network
+    depends_on:
+      global-learning-db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  global-learning-db:
+    image: pgvector/pgvector:pg18
+    environment:
+      - POSTGRES_DB=global-learning-management
+      - POSTGRES_USER=user
+      - POSTGRES_PORT=5432
+    env_file:
+      - env/global-learning-secrets.env
+    restart: always
+    volumes:
+      - global-learning-db-volume:/var/lib/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U user -d global-learning-management"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - global-learning-network
+
+  orch-api:
+    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/orch-api/orch-api:${IMAGE_TAG}
+    user: "0:0"  # run as root to access docker socket
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    restart: always
+    pull_policy: always
+    environment:
+      # Please note that CORS_ALLOWED_ORIGINS is NOT specified as this service should never be called
+      # directly from the browser, but only from the backend.
+      - QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://orch-api-db:5432/local-learning-management
+      - QUARKUS_DATASOURCE_USERNAME=user
+      - CONTAINER_FILE_TRANSFER_VOLUME_NAME=${COMPOSE_PROJECT_NAME}_orch-data
+      - CONTAINER_FILE_TRANSFER_VOLUME_PATH=/mnt/input
+      - CONTAINER_NETWORK_LEARNING=fl-net-platform-global-learning-api:8080
+      - CONTAINER_NETWORK_CONTROLLER=fl-net-platform-controller:8001
+      - CONTAINER_NAME=${COMPOSE_PROJECT_NAME}
+    env_file:
+      - env/orch-secrets.env
+    networks:
+      - global-learning-network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - orch-data-volume:/mnt/input:rw
+    depends_on:
+      global-learning-db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      orch-db:
+        condition: service_healthy
+
+  orch-db:
+    image: postgres:18.4
+    restart: always
+    pull_policy: always
+    environment:
+      - POSTGRES_DB=global-learning-management
+      - POSTGRES_USER=user
+      - POSTGRES_PORT=5432
+    env_file:
+      - env/orch-secrets.env
+    volumes:
+      - orch-db-volume:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d global-learning-management"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - global-learning-network
+
+  controller:
+    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/feature-cloud-controller/controller:${IMAGE_TAG}
+    # if you change the name also change the relevant env var in the orch api (CONTAINER_NETWORK_CONTROLLER)
+    container_name: fl-net-platform-controller
+    restart: always
+    pull_policy: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - global-learning-network
+
+  relay-server:
+    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/feature-cloud-controller/controller-relay:${IMAGE_TAG}
+    restart: always
+    ports:
+      - ${EXPOSED_RELAY_TCP_PORT}:9141
+    pull_policy: always
+    networks:
+      - global-learning-network
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    environment:
+      - RELAY_HTTP_PORT=9140 # used by the global learning API (internal traffic only)
+      - RELAY_TCP_PORT=9141 # Clients connect here for federated learning (external traffic)
+      - RELAY_DOMAIN=${HOSTNAME} # used to confirm the TLS certificate is valid for the domain the relay server is running on
+      - RELAY_PUBLIC_CERT_PATH=/public.crt
+      - RELAY_PRIVATE_KEY_PATH=/private.key
+    volumes:
+      - ${SSL_CERT_PUBLIC_KEY}:/public.crt:ro
+      - ${SSL_CERT_PRIVATE_KEY}:/private.key:ro
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    restart: always
+    pull_policy: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - global-learning-network
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    command:
+      - "start"
+      - "--import-realm"
+      - "--health-enabled=true"
+    env_file:
+      - env/keycloak-secrets.env
+    environment:
+      - KC_DB=postgres
+      - KC_DB_SCHEMA=public
+      - KC_DB_URL=jdbc:postgresql://keycloak-postgres/keycloak
+      - KC_DB_USERNAME=keycloak
+      - KC_LOG_LEVEL=INFO
+      - KC_PROXY_HEADERS=xforwarded # as is behind nginx proxy
+      - KC_HTTP_ENABLED=true # needed for the other services in this compose
+      - KC_HOSTNAME=${DEPLOYED_ON_DOMAIN}/auth
+      - KC_HTTP_RELATIVE_PATH=/auth
+      - FRONTEND_BASE_URL=${DEPLOYED_ON_DOMAIN}
+        # used in the realm file to set the correct redirect urls for the Frontend.
+    networks:
+      - global-learning-network
+    volumes:
+      # Mount the realm file directly into the auto-import directory
+      - ./keycloak-realms:/opt/keycloak/data/import/
+    healthcheck:
+      # there is no wget or curl available in the keycloak image for security reasons
+      # this uses bash features:
+      # 1. Create a read/write "file" descriptor 3 that is connected to the TCP socket of keycloak
+      #    Bash automatically translates read/write of file descriptor 3 to network I/O
+      # 2. Send a raw HTTP GET request to the health/ready endpoint
+      # 3. Read the response from the socket and search for "200 OK"
+      # If "200 OK" is found, the healthcheck passes
+      test:
+        - CMD-SHELL
+        - 'exec 3<>/dev/tcp/127.0.0.1/9000; echo -e "GET /auth/health/ready HTTP/1.1\r\nHost: localhost:9000\r\nConnection: close\r\n\r\n" >&3; cat <&3 | grep -q "200 OK"'
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      keycloak-postgres:
+        condition: service_healthy
+
+  keycloak-postgres:
+    image: postgres:18.4
+    volumes:
+      - keycloak_postgres_volume:/var/lib/postgresql
+    env_file:
+      - env/keycloak-secrets.env
+    environment:
+      - POSTGRES_DB=keycloak
+      - POSTGRES_USER=keycloak
+      - PGUSER=keycloak
+    networks:
+      - global-learning-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  reverse-proxy-unencrypted:
+    image: nginx:latest
+    environment:
+      - NGINX_HOST=${HOSTNAME}
+    ports:
+      - ${NGINX_PORT}:80
+    networks:
+      - global-learning-network
+    restart: always
+      # sometimes nginx is too fast. While during runtime it will retry to find the upstream servers,
+      # on startup it will just die. In this case we just restart the nginx and get it to runtime
+      # mode where it's more flexible/robust
+    volumes:
+      - ./nginx_server.conf:/etc/nginx/nginx.conf
+        # nginx image runs envsubst on templates/ → conf.d/ (substitutes ${NGINX_HOST} etc.)
+      - ./nginx.conf:/etc/nginx/templates/server.conf.template:ro
+        # nginx image runs envsubst on templates/ → conf.d/ (substitutes ${NGINX_HOST} etc.)
+      - ./nginx_conf_HTTP.conf:/etc/nginx/listener-server-snippets/listener.conf:ro
+        # neutralize the nginx default server block (listen 80; server_name localhost;) that
+        # the nginx Docker image ships in conf.d/default.conf — our server.conf takes its place
+      - /dev/null:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - controller
+      - relay-server
+      - frontend
+      - datamodeler-api
+      - orch-api
+      - global-learning-api
+      - keycloak
+    profiles:
+      - no-ssl
+
+  reverse-proxy-encrypted:
+    image: nginx:latest
+    environment:
+      - NGINX_HOST=${HOSTNAME}
+    ports:
+      - ${NGINX_PORT}:443
+    networks:
+      - global-learning-network
+    restart: always
+      # sometimes nginx is too fast. While during runtime it will retry to find the upstream servers,
+      # on startup it will just die. In this case we just restart the nginx and get it to runtime
+      # mode where it's more flexible/robust
+    volumes:
+      - ./nginx_server.conf:/etc/nginx/nginx.conf
+        # nginx image runs envsubst on templates/ → conf.d/ (substitutes ${NGINX_HOST} etc.)
+      - ./nginx.conf:/etc/nginx/templates/server.conf.template:ro
+        # included inside the server block (see nginx.conf); provides HTTPS listen + HSTS directives
+      - ./nginx_conf_HTTPS.conf:/etc/nginx/listener-server-snippets/listener.conf:ro
+        # shared SSL directives for HTTPS server context and the stream context
+      - ./nginx_conf_ssl.conf:/etc/nginx/ssl-server-snippets/ssl.conf:ro
+      - ./nginx_conf_ssl.conf:/etc/nginx/ssl-stream-snippets/ssl.conf:ro
+        # neutralize the nginx default server block (listen 80; server_name localhost;) that
+        # the nginx Docker image ships in conf.d/default.conf — our server.conf takes its place
+      - /dev/null:/etc/nginx/conf.d/default.conf:ro
+      - ${SSL_CERT_PUBLIC_KEY}:/etc/nginx/ssl/public.crt:ro
+      - ${SSL_CERT_PRIVATE_KEY}:/etc/nginx/ssl/private.key:ro
+    depends_on:
+      - controller
+      - relay-server
+      - frontend
+      - datamodeler-api
+      - orch-api
+      - global-learning-api
+      - keycloak
+    profiles:
+      - ssl
+
+  documentation:
+    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/user-documentation/flnet-user-doc:latest
+    networks:
+      - global-learning-network
+    restart: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+volumes:
+  global-learning-db-volume:
+  datamodeler-db:
+  keycloak_postgres_volume:
+  orch-data-volume:
+    name: ${COMPOSE_PROJECT_NAME}_orch-data
+  orch-db-volume:
+  #neo4j-import:
+
+networks:
+  global-learning-network:
+    driver: bridge
