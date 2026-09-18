@@ -1,6 +1,6 @@
 services:
   datamodeler-api:
-    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/global-learning-apis/datamodeler-api:${IMAGE_TAG}
+    image: ghcr.io/fedlearnnet/learning-apis/datamodeler-api:${IMAGE_TAG}
     restart: always
     pull_policy: always
     environment:
@@ -47,7 +47,7 @@ services:
       retries: 10
 
   global-learning-api:
-    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/global-learning-apis/global-learning-api:${IMAGE_TAG}
+    image: ghcr.io/fedlearnnet/learning-apis/global-learning-api:${IMAGE_TAG}
     # if you change the name also change the relevant env var in the orch api (CONTAINER_NETWORK_LEARNING)
     container_name: fl-net-platform-global-learning-api
     env_file:
@@ -93,7 +93,7 @@ services:
       - global-learning-network
 
   orch-api:
-    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/orch-api/orch-api:${IMAGE_TAG}
+    image: ghcr.io/fedlearnnet/orchestration-api/orch-api:${IMAGE_TAG}
     user: "0:0"  # run as root to access docker socket
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
@@ -145,7 +145,7 @@ services:
       - global-learning-network
 
   controller:
-    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/feature-cloud-controller/controller:${IMAGE_TAG}
+    image: ghcr.io/fedlearnnet/federated-learning-communication-api/controller:${IMAGE_TAG}
     # if you change the name also change the relevant env var in the orch api (CONTAINER_NETWORK_CONTROLLER)
     container_name: fl-net-platform-controller
     restart: always
@@ -156,7 +156,7 @@ services:
       - global-learning-network
 
   relay-server:
-    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/feature-cloud-controller/controller-relay:${IMAGE_TAG}
+    image: ghcr.io/fedlearnnet/federated-learning-communication-api/controller-relay:${IMAGE_TAG}
     restart: always
     ports:
       - ${EXPOSED_RELAY_TCP_PORT}:9141
@@ -320,7 +320,7 @@ services:
       - ssl
 
   documentation:
-    image: gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/user-documentation/flnet-user-doc:latest
+    image: ghcr.io/fedlearnnet/documentation/flnet-user-doc:latest
     networks:
       - global-learning-network
     restart: always

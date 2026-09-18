@@ -25,15 +25,15 @@ DEFAULT_COMPOSE_PROJECT_NAME = 'fl-net-platform'
 IMAGE_TAG = "latest"
 DEFAULT_MIN_CLIENTS = "3"
 DOMAIN_TO_IMAGE = {
-    "https://federated-learning.net": f"gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/frontend-shared/global-fl-net:{IMAGE_TAG}",
-    "https://daibetes-net.cosy.bio": f"gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/frontend-shared/global-daibetes:{IMAGE_TAG}",
-    "https://daibetes-net.federated-learning.net": f"gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/frontend-shared/global-daibetes:{IMAGE_TAG}",
-    "https://microb-ai-net.cosy.bio": f"gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/frontend-shared/global-microbaiome:{IMAGE_TAG}",
-    "https://microb-ai-net.federated-learning.net": f"gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/frontend-shared/global-microbaiome:{IMAGE_TAG}",
+    "https://federated-learning.net": f"ghcr.io/fedlearnnet/frontends/global-fl-net:{IMAGE_TAG}",
+    "https://daibetes-net.cosy.bio": f"ghcr.io/fedlearnnet/frontends/global-daibetes:{IMAGE_TAG}",
+    "https://daibetes-net.federated-learning.net": f"ghcr.io/fedlearnnet/frontends/global-daibetes:{IMAGE_TAG}",
+    "https://microb-ai-net.cosy.bio": f"ghcr.io/fedlearnnet/frontends/global-microbaiome:{IMAGE_TAG}",
+    "https://microb-ai-net.federated-learning.net": f"ghcr.io/fedlearnnet/frontends/global-microbaiome:{IMAGE_TAG}",
 } # Add more domain-to-image mappings here if needed
 
 # fallbacks
-DEFAULT_FRONTEND_IMAGE = f"gitlab.cosy.bio:5050/cosybio/federated-learning/federated_db/frontend-shared/global-fl-net:{IMAGE_TAG}"
+DEFAULT_FRONTEND_IMAGE = f"ghcr.io/fedlearnnet/frontends/global-fl-net:{IMAGE_TAG}"
 
 # handling of paths
 BASE_DIR_INSTALLER_SCRIPT = Path(__file__).resolve().parent
